@@ -1,0 +1,74 @@
+# Compila el APK de «Ruta Catastral Campo» en los servidores de GitHub (no hay que instalar nada).
+# Se ejecuta solo al subir cambios, o a mano: pestaña «Actions» → «Compilar APK» → «Run workflow».
+# El APK queda publicado en «Releases» (descárguelo directamente desde el celular).
+# Funciona aunque el proyecto haya quedado dentro de una subcarpeta (p. ej. RutaCatastralCampo/).
+name: Compilar APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compilar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Ubicar el proyecto Android
+        id: ubicar
+        run: |
+          F=$(find . -name settings.gradle -not -path './.git/*' | head -n 1)
+          if [ -z "$F" ]; then
+            echo "::error::No se encontró settings.gradle. Suba al repositorio el CONTENIDO del ZIP RutaCatastralCampo_proyecto_android.zip"
+            exit 1
+          fi
+          DIR=$(dirname "$F")
+          if [ ! -f "$DIR/app/firma/rutacatastral.p12" ]; then
+            echo "::error::Falta la carpeta app/firma (llave de firma). Súbala desde el ZIP."
+            exit 1
+          fi
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+          echo "Proyecto Android en: $DIR"
+
+      - name: Preparar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Preparar Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Compilar el APK firmado
+        working-directory: ${{ steps.ubicar.outputs.dir }}
+        run: gradle --no-daemon --stacktrace :app:assembleRelease
+
+      - name: Nombrar el APK
+        run: cp "${{ steps.ubicar.outputs.dir }}/app/build/outputs/apk/release/app-release.apk" "RutaCatastralCampo-1.0.${{ github.run_number }}.apk"
+
+      - name: Guardar como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: RutaCatastralCampo-1.0.${{ github.run_number }}
+          path: RutaCatastralCampo-*.apk
+
+      - name: Publicar en Releases (para descargar desde el celular)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Ruta Catastral Campo 1.0.${{ github.run_number }}
+          body: |
+            Descargue el archivo .apk desde el celular e instálelo (Android 10 o superior).
+            Si ya tenía la app, esta versión se instala encima y conserva las jornadas, fotos y resultados.
+          files: RutaCatastralCampo-*.apk
+          make_latest: true
